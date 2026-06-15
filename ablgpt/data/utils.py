@@ -1,6 +1,4 @@
 import os
-from importlib.resources import files
-from pathlib import Path
 
 from datasets import Features, Value, load_dataset
 from huggingface_hub import hf_hub_download
@@ -16,9 +14,6 @@ WIKIPEDIA_SHARDS = [
 os.environ.setdefault("HF_HUB_HTTP_TIMEOUT", "120")
 
 TEXT_FEATURES = Features({"text": Value("string")})
-
-
-REPO_ROOT = Path(str(files("ablgpt"))).parent
 
 
 def load_source(repo_id, config, data_dir, text_field):
@@ -42,12 +37,7 @@ def load_source(repo_id, config, data_dir, text_field):
         ds = ds.map(lambda ex, f=text_field: {"text": ex[f]}, features=TEXT_FEATURES)
         return ds.select_columns(["text"])
 
-    ds = load_dataset(
-        repo_id, config, data_dir=data_dir, split="train", streaming=True
-    )
+    ds = load_dataset(repo_id, config, data_dir=data_dir, split="train", streaming=True)
     print(f"[load] {label} OK", flush=True)
     ds = ds.map(lambda ex, f=text_field: {"text": ex[f]}, features=TEXT_FEATURES)
     return ds.select_columns(["text"])
-
-
-

@@ -8,7 +8,8 @@ import orjson
 from datasets import interleave_datasets
 from tqdm import tqdm
 
-from ablgpt.data.utils import REPO_ROOT, load_source
+from ablgpt.data.utils import load_source
+from ablgpt.utils import REPO_ROOT
 
 # Each source is (repo_id, config, data_dir, text_field, weight).
 _LANGS = [
@@ -64,7 +65,7 @@ def main():
         desc="Writing tokenizer_corpus",
     )
 
-    out_path = REPO_ROOT / "data" / f"tokenizer_corpus.jsonl"
+    out_path = REPO_ROOT / "data" / "tokenizer_corpus.jsonl"
     out_path.parent.mkdir(parents=True, exist_ok=True)
 
     buf = []
