@@ -1,4 +1,5 @@
 import os
+from itertools import islice
 
 from datasets import Features, Value, load_dataset
 from huggingface_hub import hf_hub_download
@@ -41,3 +42,34 @@ def load_source(repo_id, config, data_dir, text_field):
     print(f"[load] {label} OK", flush=True)
     ds = ds.map(lambda ex, f=text_field: {"text": ex[f]}, features=TEXT_FEATURES)
     return ds.select_columns(["text"])
+
+
+def measure_avg_doc_bytes(ds, sample_size=2000):
+    total = 0
+    n = 0
+    for ex in islice(ds, sample_size):
+        text = ex["text"]
+        if not text:
+            continue
+        total += len(text.encode("utf-8"))
+        n += 1
+    return (total / n) if n else 0.0
+
+
+def byte_weighted_probs(mix, sample_size=2000):
+    datasets_list = []
+    raw = []  # target_i / avg_doc_bytes_i, pre-normalization
+    for repo_id, config, data_dir, text_field, target in mix:
+        ds = load_source(repo_id, config, data_dir, text_field)
+        avg = measure_avg_doc_bytes(ds, sample_size=sample_size)
+        label = f"{repo_id}/{config or data_dir}" if (config or data_dir) else repo_id
+        print(f"[bytes] {label}: avg {avg:.0f} B/doc, target {target}", flush=True)
+        datasets_list.append(ds)
+        raw.append(target / avg if avg > 0 else 0.0)
+
+    total = sum(raw)
+    probs = [r / total for r in raw] if total > 0 else raw
+    for (repo_id, config, data_dir, _, _), p in zip(mix, probs):
+        label = f"{repo_id}/{config or data_dir}" if (config or data_dir) else repo_id
+        print(f"[probs] {label}: sampling p = {p:.4f}", flush=True)
+    return datasets_list, probs

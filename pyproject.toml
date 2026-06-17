@@ -8,5 +8,8 @@ dependencies = [
     "datasets>=5.0.0",
     "huggingface-hub>=1.19.0",
     "orjson>=3.11.9",
+    "pyyaml>=6.0.3",
+    "regex>=2026.5.9",
+    "tokenizers>=0.23.1",
     "zstandard>=0.25.0",
 ]

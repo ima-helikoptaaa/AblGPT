@@ -8,7 +8,7 @@ import orjson
 from datasets import interleave_datasets
 from tqdm import tqdm
 
-from ablgpt.data.utils import load_source
+from ablgpt.data.utils import byte_weighted_probs
 from ablgpt.utils import REPO_ROOT
 
 # Each source is (repo_id, config, data_dir, text_field, weight).
@@ -43,17 +43,17 @@ WRITE_BUFFER = 64 * 1024 * 1024  # flush every 64 MB
 
 
 def main():
-    datasets_list, probs = [], []
-    for repo_id, config, data_dir, text_field, weight in tokenizer_mix:
-        datasets_list.append(load_source(repo_id, config, data_dir, text_field))
-        probs.append(weight)
+    # Mix weights are byte-fraction TARGETS; convert to per-document sampling
+    # probabilities so the realized byte mix matches them (interleave samples
+    # per document, but docs differ in size across sources).
+    datasets_list, probs = byte_weighted_probs(tokenizer_mix)
 
     print("[interleave] resolving features (may take a minute) ...", flush=True)
     mixed = interleave_datasets(
         datasets_list,
         probabilities=probs,
         seed=42,
-        stopping_strategy="first_exhausted",
+        stopping_strategy="all_exhausted",
     )
     print("[interleave] ready", flush=True)
 
@@ -65,7 +65,7 @@ def main():
         desc="Writing tokenizer_corpus",
     )
 
-    out_path = REPO_ROOT / "data" / "tokenizer_corpus.jsonl"
+    out_path = REPO_ROOT / "tokenizer" / "tokenizer_corpus.jsonl"
     out_path.parent.mkdir(parents=True, exist_ok=True)
 
     buf = []
