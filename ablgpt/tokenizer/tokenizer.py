@@ -1,7 +1,7 @@
 """Runtime tokenizer: load the trained BPE artifacts into a HuggingFace
 `Tokenizer` and expose encode/decode.
 
-The artifacts (data/vocab.json, data/merges.txt) are produced by
+The artifacts (tokenizer/vocab.json, tokenizer/merges.txt) are produced by
 `ablgpt.tokenizer.bpe` in HF's byte-level encoding. To reproduce the exact
 tokenization used at training time we must mirror the trainer's pipeline:
 
@@ -21,19 +21,28 @@ For tokenizing text
     text = tok.decode(ids)
 
 For running evaluation
-    uv run python -m ablgpt.tokenizer.tokenizer
+    uv run python -m ablgpt.tokenizer.tokenizer --mix ladder
 """
 
+import argparse
 from itertools import islice
 
 from tokenizers import Regex, Tokenizer, decoders, pre_tokenizers
 from tokenizers.models import BPE
-from ablgpt.data.build_tokenizer_corpus import tokenizer_mix
 
+from ablgpt.config import load_data_mix
 from ablgpt.data.utils import load_source
 from ablgpt.tokenizer.bpe import TOKEN_PAT
 from ablgpt.tokenizer.special_tokens import SPECIAL_TOKENS
 from ablgpt.utils import REPO_ROOT
+
+
+def parse_args():
+    p = argparse.ArgumentParser()
+    p.add_argument(
+        "--mix", default="ladder", help="named mix in configs/data_mixes.yaml"
+    )
+    return p.parse_args()
 
 
 def load_tokenizer():
@@ -108,5 +117,7 @@ def eval_tokenizer(mix, tok, sample_size=2000):
 
 
 if __name__ == "__main__":
+    args = parse_args()
+    mix = load_data_mix(args.mix).as_mix()
     tok = load_tokenizer()
-    eval_tokenizer(tokenizer_mix, tok)
+    eval_tokenizer(mix, tok)
