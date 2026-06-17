@@ -1,0 +1,23 @@
+# Data mix VALUES (schema: ablgpt.config.DataConfig / MixSource).
+#
+# `weight` is a byte-fraction TARGET; byte_weighted_probs() converts these into
+# per-document sampling probabilities so the realized byte mix matches them.
+#
+# Each source: repo_id, config, data_dir, text_field, weight.
+
+# Flagship pretraining corpus. stack-edu is the frontier-grade code source
+# (SmolLM family), fetched in bulk via SoftwareHeritage S3.
+flagship:
+  - { repo_id: HuggingFaceTB/stack-edu,          config: Python,         data_dir: null, text_field: text, weight: 0.05 }
+  - { repo_id: HuggingFaceTB/stack-edu,          config: JavaScript,     data_dir: null, text_field: text, weight: 0.03 }
+  - { repo_id: HuggingFaceTB/stack-edu,          config: TypeScript,     data_dir: null, text_field: text, weight: 0.02 }
+  - { repo_id: HuggingFaceTB/stack-edu,          config: Markdown,       data_dir: null, text_field: text, weight: 0.02 }
+  - { repo_id: HuggingFaceFW/fineweb-edu,        config: sample-10BT,    data_dir: null, text_field: text, weight: 0.45 }
+  - { repo_id: mlfoundations/dclm-baseline-1.0,  config: null,           data_dir: null, text_field: text, weight: 0.30 }
+  - { repo_id: HuggingFaceTB/finemath,           config: finemath-4plus, data_dir: null, text_field: text, weight: 0.08 }
+  - { repo_id: wikimedia/wikipedia,              config: 20231101.en,    data_dir: null, text_field: text, weight: 0.05 }
+
+# Lightweight mix for ladder / smaller runs.
+ladder:
+  - { repo_id: HuggingFaceFW/fineweb-edu,        config: sample-10BT,    data_dir: null, text_field: text, weight: 0.60 }
+  - { repo_id: mlfoundations/dclm-baseline-1.0,  config: null,           data_dir: null, text_field: text, weight: 0.40 }
