@@ -1,6 +1,10 @@
+import gzip
 import os
 from itertools import islice
 
+import boto3
+from botocore import UNSIGNED
+from botocore.config import Config
 from datasets import Features, Value, load_dataset
 from huggingface_hub import hf_hub_download
 
@@ -16,10 +20,54 @@ os.environ.setdefault("HF_HUB_HTTP_TIMEOUT", "120")
 
 TEXT_FEATURES = Features({"text": Value("string")})
 
+# stack-edu (and other SmolLM/StarCoder-lineage datasets) ship only METADATA --
+# blob_id, language, score, src_encoding -- not the source code. The bytes live
+# in SoftwareHeritage's public S3 bucket, keyed by content/<blob_id>, gzip'd.
+# Reads are anonymous (UNSIGNED) and the bucket is in us-east-1.
+SWH_BUCKET = "softwareheritage"
+SWH_REGION = "us-east-1"
+_SWH_S3 = None  # lazily created per process (boto3 clients are not fork-safe)
+
+# Datasets whose `text` must be resolved from SWH S3 rather than read inline.
+SWH_REPOS = {"HuggingFaceTB/stack-edu"}
+
+
+def _swh_client():
+    global _SWH_S3
+    if _SWH_S3 is None:
+        _SWH_S3 = boto3.client(
+            "s3", region_name=SWH_REGION, config=Config(signature_version=UNSIGNED)
+        )
+    return _SWH_S3
+
+
+def _fetch_swh_content(blob_id, src_encoding):
+    """Fetch one blob's source text from SoftwareHeritage S3. Returns "" on
+    failure so a single bad/missing blob can't kill a streaming run."""
+    try:
+        obj = _swh_client().get_object(Bucket=SWH_BUCKET, Key=f"content/{blob_id}")
+        raw = gzip.decompress(obj["Body"].read())
+        return raw.decode(src_encoding or "utf-8", errors="replace")
+    except Exception:
+        return ""
+
+
+def _swh_map(ex):
+    """Map a stack-edu metadata row -> {"text": <fetched source>}."""
+    return {"text": _fetch_swh_content(ex["blob_id"], ex.get("src_encoding"))}
+
 
 def load_source(repo_id, config, data_dir, text_field):
     label = f"{repo_id}/{config or data_dir}" if (config or data_dir) else repo_id
     print(f"[load] {label} ...", flush=True)
+
+    if repo_id in SWH_REPOS:
+        # Metadata-only dataset: stream the rows, then resolve each blob's code
+        # from S3. The HF `text_field` is ignored (there is no inline text).
+        ds = load_dataset(repo_id, config, data_dir=data_dir, split="train", streaming=True)
+        print(f"[load] {label} OK (metadata; code via SWH S3)", flush=True)
+        ds = ds.map(_swh_map, features=TEXT_FEATURES, remove_columns=ds.column_names)
+        return ds.select_columns(["text"])
 
     if repo_id == "wikimedia/wikipedia":
         local_files = []
@@ -35,12 +83,23 @@ def load_source(repo_id, config, data_dir, text_field):
             "parquet", data_files=local_files, split="train", streaming=True
         )
         print(f"[load] {label} OK (local)", flush=True)
-        ds = ds.map(lambda ex, f=text_field: {"text": ex[f]}, features=TEXT_FEATURES)
+        ds = ds.map(
+            lambda ex, f=text_field: {"text": ex[f]},
+            features=TEXT_FEATURES,
+            remove_columns=ds.column_names,
+        )
         return ds.select_columns(["text"])
 
     ds = load_dataset(repo_id, config, data_dir=data_dir, split="train", streaming=True)
     print(f"[load] {label} OK", flush=True)
-    ds = ds.map(lambda ex, f=text_field: {"text": ex[f]}, features=TEXT_FEATURES)
+    # remove_columns is required: mapping to TEXT_FEATURES while the original
+    # columns survive desyncs the schema from the declared features (and breaks
+    # sources whose text lives in a non-"text" field, e.g. arxiver's `markdown`).
+    ds = ds.map(
+        lambda ex, f=text_field: {"text": ex[f]},
+        features=TEXT_FEATURES,
+        remove_columns=ds.column_names,
+    )
     return ds.select_columns(["text"])
 
 

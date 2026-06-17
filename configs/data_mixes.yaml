@@ -4,20 +4,80 @@
 # per-document sampling probabilities so the realized byte mix matches them.
 #
 # Each source: repo_id, config, data_dir, text_field, weight.
+#
+# Naming (see history.md §3-4):
+#   ladder           -> scaling-law rungs R1-R4 + architecture ablations. WEB-ONLY.
+#                       Code/math NEVER here (capability doesn't emerge at this
+#                       scale; pure web = clean signal -- verified vs SmolLM2).
+#   ladder_plus_code -> ladder + code, ONLY for the controlled +/-code data ablation.
+#   flagship         -> the 100B full-mix pretraining run.
+#   flagship_anneal  -> final ~5-10% annealing window, reweighted toward
+#                       code/math/curated, LR decayed to ~0.
 
-# Flagship pretraining corpus. stack-edu is the frontier-grade code source
-# (SmolLM family), fetched in bulk via SoftwareHeritage S3.
+# stack-edu is METADATA-ONLY (blob_id, language, score, ...). The actual source
+# code is fetched from SoftwareHeritage's public S3 bucket by load_source()
+# (see ablgpt/data/utils.py:SWH_REPOS); `text_field` is ignored for those rows.
+# stack-edu config names are case-sensitive: Cpp, Go, Rust, SQL, CSharp, etc.
+
+
+# ── LADDER: web-only 60/40 FineWeb-Edu / DCLM. ─────────────────────────────
+# The scaling-law rungs and every architecture ablation read this. No code,
+# no math -- clean, low-variance signal at proxy scale. Fastest to stream.
+ladder:
+  - { repo_id: HuggingFaceFW/fineweb-edu,        config: sample-100BT,    data_dir: null, text_field: text, weight: 0.60 }
+  - { repo_id: mlfoundations/dclm-baseline-1.0,  config: null,           data_dir: null, text_field: text, weight: 0.40 }
+
+
+# ── LADDER +CODE: the +/-code data ablation ONLY (history.md §4). ──────────
+# Identical web backbone to `ladder`, plus ~12% code at the flagship code
+# proportion. Run @ R3 iso-FLOP vs `ladder` to get a controlled data point on
+# the "does code help reasoning" claim. NOT a scaling-law mix.
+ladder_plus_code:
+  - { repo_id: HuggingFaceFW/fineweb-edu,        config: sample-100BT,    data_dir: null, text_field: text, weight: 0.53 }
+  - { repo_id: mlfoundations/dclm-baseline-1.0,  config: null,           data_dir: null, text_field: text, weight: 0.35 }
+  - { repo_id: HuggingFaceTB/stack-edu,          config: Python,         data_dir: null, text_field: text, weight: 0.05 }
+  - { repo_id: HuggingFaceTB/stack-edu,          config: JavaScript,     data_dir: null, text_field: text, weight: 0.03 }
+  - { repo_id: HuggingFaceTB/stack-edu,          config: Cpp,            data_dir: null, text_field: text, weight: 0.02 }
+  - { repo_id: HuggingFaceTB/stack-edu,          config: SQL,            data_dir: null, text_field: text, weight: 0.02 }
+
+
+# ── FLAGSHIP: the 100B full-mix pretraining corpus. ───────────────────────
+# ~15% code across 7 languages (diversity > depth for a general base model),
+# 78% web/prose, 8% math. Code modality is ESTABLISHED here; flagship_anneal
+# upweights it later.
 flagship:
   - { repo_id: HuggingFaceTB/stack-edu,          config: Python,         data_dir: null, text_field: text, weight: 0.05 }
   - { repo_id: HuggingFaceTB/stack-edu,          config: JavaScript,     data_dir: null, text_field: text, weight: 0.03 }
-  - { repo_id: HuggingFaceTB/stack-edu,          config: TypeScript,     data_dir: null, text_field: text, weight: 0.02 }
-  - { repo_id: HuggingFaceTB/stack-edu,          config: Markdown,       data_dir: null, text_field: text, weight: 0.02 }
-  - { repo_id: HuggingFaceFW/fineweb-edu,        config: sample-10BT,    data_dir: null, text_field: text, weight: 0.45 }
+  - { repo_id: HuggingFaceTB/stack-edu,          config: TypeScript,     data_dir: null, text_field: text, weight: 0.015 }
+  - { repo_id: HuggingFaceTB/stack-edu,          config: Cpp,            data_dir: null, text_field: text, weight: 0.02 }
+  - { repo_id: HuggingFaceTB/stack-edu,          config: Go,             data_dir: null, text_field: text, weight: 0.015 }
+  - { repo_id: HuggingFaceTB/stack-edu,          config: Rust,           data_dir: null, text_field: text, weight: 0.01 }
+  - { repo_id: HuggingFaceTB/stack-edu,          config: SQL,            data_dir: null, text_field: text, weight: 0.01 }
+  - { repo_id: HuggingFaceTB/stack-edu,          config: Markdown,       data_dir: null, text_field: text, weight: 0.01 }
+  - { repo_id: HuggingFaceFW/fineweb-edu,        config: sample-10BT,    data_dir: null, text_field: text, weight: 0.43 }
   - { repo_id: mlfoundations/dclm-baseline-1.0,  config: null,           data_dir: null, text_field: text, weight: 0.30 }
   - { repo_id: HuggingFaceTB/finemath,           config: finemath-4plus, data_dir: null, text_field: text, weight: 0.08 }
   - { repo_id: wikimedia/wikipedia,              config: 20231101.en,    data_dir: null, text_field: text, weight: 0.05 }
 
-# Lightweight mix for ladder / smaller runs.
-ladder:
-  - { repo_id: HuggingFaceFW/fineweb-edu,        config: sample-10BT,    data_dir: null, text_field: text, weight: 0.60 }
-  - { repo_id: mlfoundations/dclm-baseline-1.0,  config: null,           data_dir: null, text_field: text, weight: 0.40 }
+
+# ── FLAGSHIP ANNEAL: final ~5-10% window, same shards, REWEIGHTED. ────────
+# Run over the final short window with LR decayed toward 0. Upweights (does
+# not introduce) capabilities laid down in flagship pretraining. Frontier
+# annealing trio (SmolLM2 / OLMo 2 / Phi recipes):
+#   cosmopedia-v2 = synthetic textbooks (highest-impact lever)
+#   finemath      = math, heavily upweighted
+#   peS2o         = S2ORC academic papers ("PDF"-equivalent, field is `text`)
+# All verified streamable via load_source.
+flagship_anneal:
+  - { repo_id: HuggingFaceTB/stack-edu,      config: Python,         data_dir: null, text_field: text, weight: 0.10 }
+  - { repo_id: HuggingFaceTB/stack-edu,      config: JavaScript,     data_dir: null, text_field: text, weight: 0.04 }
+  - { repo_id: HuggingFaceTB/stack-edu,      config: TypeScript,     data_dir: null, text_field: text, weight: 0.03 }
+  - { repo_id: HuggingFaceTB/stack-edu,      config: Cpp,            data_dir: null, text_field: text, weight: 0.03 }
+  - { repo_id: HuggingFaceTB/stack-edu,      config: Go,             data_dir: null, text_field: text, weight: 0.03 }
+  - { repo_id: HuggingFaceTB/stack-edu,      config: Rust,           data_dir: null, text_field: text, weight: 0.02 }
+  - { repo_id: HuggingFaceTB/stack-edu,      config: SQL,            data_dir: null, text_field: text, weight: 0.02 }
+  - { repo_id: HuggingFaceTB/finemath,       config: finemath-4plus, data_dir: null, text_field: text, weight: 0.22 }
+  - { repo_id: HuggingFaceTB/smollm-corpus,  config: cosmopedia-v2,  data_dir: null, text_field: text, weight: 0.14 }
+  - { repo_id: common-pile/peS2o,            config: null,           data_dir: null, text_field: text, weight: 0.08 }
+  - { repo_id: HuggingFaceFW/fineweb-edu,    config: sample-10BT,    data_dir: null, text_field: text, weight: 0.23 }
+  - { repo_id: wikimedia/wikipedia,          config: 20231101.en,    data_dir: null, text_field: text, weight: 0.07 }
