@@ -57,17 +57,27 @@ def _swh_map(ex):
     return {"text": _fetch_swh_content(ex["blob_id"], ex.get("src_encoding"))}
 
 
-def load_source(repo_id, config, data_dir, text_field):
+def source_slug(repo_id, config):
+    """Stable on-disk directory name for a source. Shared by the sharder (where
+    it writes) and the loader (where it reads), so they must never diverge."""
+    name = repo_id.split("/")[-1]
+    return f"{name}-{config}" if config else name
+
+
+def load_source(repo_id, config, data_dir, text_field, revision=None):
     label = f"{repo_id}/{config or data_dir}" if (config or data_dir) else repo_id
     print(f"[load] {label} ...", flush=True)
 
     if repo_id in SWH_REPOS:
         # Metadata-only dataset: stream the rows, then resolve each blob's code
         # from S3. The HF `text_field` is ignored (there is no inline text).
-        ds = load_dataset(repo_id, config, data_dir=data_dir, split="train", streaming=True)
+        ds = load_dataset(
+            repo_id, config, data_dir=data_dir, split="train",
+            streaming=True, revision=revision,
+        )
         print(f"[load] {label} OK (metadata; code via SWH S3)", flush=True)
-        ds = ds.map(_swh_map, features=TEXT_FEATURES, remove_columns=ds.column_names)
-        return ds.select_columns(["text"])
+        # remove_columns already leaves only "text" — no select_columns needed.
+        return ds.map(_swh_map, features=TEXT_FEATURES, remove_columns=ds.column_names)
 
     if repo_id == "wikimedia/wikipedia":
         local_files = []
@@ -77,30 +87,32 @@ def load_source(repo_id, config, data_dir, text_field):
                 repo_id="wikimedia/wikipedia",
                 filename=shard,
                 repo_type="dataset",
+                revision=revision,
             )
             local_files.append(path)
         ds = load_dataset(
             "parquet", data_files=local_files, split="train", streaming=True
         )
         print(f"[load] {label} OK (local)", flush=True)
-        ds = ds.map(
+        return ds.map(
             lambda ex, f=text_field: {"text": ex[f]},
             features=TEXT_FEATURES,
             remove_columns=ds.column_names,
         )
-        return ds.select_columns(["text"])
 
-    ds = load_dataset(repo_id, config, data_dir=data_dir, split="train", streaming=True)
+    ds = load_dataset(
+        repo_id, config, data_dir=data_dir, split="train",
+        streaming=True, revision=revision,
+    )
     print(f"[load] {label} OK", flush=True)
     # remove_columns is required: mapping to TEXT_FEATURES while the original
     # columns survive desyncs the schema from the declared features (and breaks
     # sources whose text lives in a non-"text" field, e.g. arxiver's `markdown`).
-    ds = ds.map(
+    return ds.map(
         lambda ex, f=text_field: {"text": ex[f]},
         features=TEXT_FEATURES,
         remove_columns=ds.column_names,
     )
-    return ds.select_columns(["text"])
 
 
 def measure_avg_doc_bytes(ds, sample_size=2000):

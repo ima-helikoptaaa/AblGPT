@@ -1,0 +1,29 @@
+# Disk inventory: per-source token budget the sharder writes to disk. The only
+# file ablgpt/data/tokenize_shards.py reads. Mixes/weights/epochs live in
+# data_mixes.yaml and are a loader concern — this is just "put N tokens of each
+# source on disk." Shard which sources you want via the sharder's --source flag
+# (ladder web sources locally; the rest on the VM).
+#
+# cap = min(epochs x source_size, max_demand_across_runs) x 1.15 leeway.
+# epochs by category: web 1, code 2, curated 2, math 3 — never above 3.
+# category drives the loader's epoch limit. revision pins the HF commit so
+# resume's stream-skip is exact; set it before the flagship run.
+
+shards:
+  # ladder + flagship web backbone
+  - { repo_id: HuggingFaceFW/fineweb-edu,       config: sample-100BT,   data_dir: null, text_field: text, category: web,     tokens: 44e9,  revision: null }
+  - { repo_id: mlfoundations/dclm-baseline-1.0, config: null,           data_dir: null, text_field: text, category: web,     tokens: 31e9,  revision: null }
+  # math + curated
+  - { repo_id: HuggingFaceTB/finemath,          config: finemath-4plus, data_dir: null, text_field: text, category: math,    tokens: 8.3e9, revision: null }
+  - { repo_id: wikimedia/wikipedia,             config: 20231101.en,    data_dir: null, text_field: text, category: curated, tokens: 5e9,   revision: null }
+  - { repo_id: HuggingFaceTB/smollm-corpus,     config: cosmopedia-v2,  data_dir: null, text_field: text, category: curated, tokens: 1.6e9, revision: null }
+  - { repo_id: common-pile/peS2o,               config: null,           data_dir: null, text_field: text, category: curated, tokens: 0.9e9, revision: null }
+  # code
+  - { repo_id: HuggingFaceTB/stack-edu,         config: Python,         data_dir: null, text_field: text, category: code,    tokens: 5.2e9, revision: null }
+  - { repo_id: HuggingFaceTB/stack-edu,         config: JavaScript,     data_dir: null, text_field: text, category: code,    tokens: 3.1e9, revision: null }
+  - { repo_id: HuggingFaceTB/stack-edu,         config: TypeScript,     data_dir: null, text_field: text, category: code,    tokens: 1.6e9, revision: null }
+  - { repo_id: HuggingFaceTB/stack-edu,         config: Cpp,            data_dir: null, text_field: text, category: code,    tokens: 2.1e9, revision: null }
+  - { repo_id: HuggingFaceTB/stack-edu,         config: Go,             data_dir: null, text_field: text, category: code,    tokens: 1.6e9, revision: null }
+  - { repo_id: HuggingFaceTB/stack-edu,         config: Rust,           data_dir: null, text_field: text, category: code,    tokens: 1.0e9, revision: null }
+  - { repo_id: HuggingFaceTB/stack-edu,         config: SQL,            data_dir: null, text_field: text, category: code,    tokens: 1.0e9, revision: null }
+  - { repo_id: HuggingFaceTB/stack-edu,         config: Markdown,       data_dir: null, text_field: text, category: code,    tokens: 1.0e9, revision: null }
