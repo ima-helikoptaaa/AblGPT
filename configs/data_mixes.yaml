@@ -20,6 +20,14 @@
 # stack-edu config names are case-sensitive: Cpp, Go, Rust, SQL, CSharp, etc.
 
 
+# ── SMOKE: single-source web, for the training-loop smoke test ONLY. ──────
+# FineWeb-Edu only (already fully sharded + indexed) so the trainer, loader,
+# and correctness gates (step-0 loss, overfit-tiny) can run with no dependency
+# on DCLM. NOT a real mix -- never used for a scaling-law rung or ablation.
+smoke:
+  - { repo_id: HuggingFaceFW/fineweb-edu,        config: sample-100BT,    data_dir: null, text_field: text, weight: 1.0 }
+
+
 # ── LADDER: web-only 60/40 FineWeb-Edu / DCLM. ─────────────────────────────
 # The scaling-law rungs and every architecture ablation read this. No code,
 # no math -- clean, low-variance signal at proxy scale. Fastest to stream.

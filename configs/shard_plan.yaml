@@ -11,19 +11,131 @@
 
 shards:
   # ladder + flagship web backbone
-  - { repo_id: HuggingFaceFW/fineweb-edu,       config: sample-100BT,   data_dir: null, text_field: text, category: web,     tokens: 44e9,  revision: null }
-  - { repo_id: mlfoundations/dclm-baseline-1.0, config: null,           data_dir: null, text_field: text, category: web,     tokens: 31e9,  revision: null }
+  - {
+      repo_id: HuggingFaceFW/fineweb-edu,
+      config: sample-100BT,
+      data_dir: null,
+      text_field: text,
+      category: web,
+      tokens: 44e9,
+      revision: null,
+    }
+  - {
+      repo_id: mlfoundations/dclm-baseline-1.0,
+      config: null,
+      data_dir: null,
+      text_field: text,
+      category: web,
+      tokens: 4e9,
+      revision: null,
+    }
   # math + curated
-  - { repo_id: HuggingFaceTB/finemath,          config: finemath-4plus, data_dir: null, text_field: text, category: math,    tokens: 8.3e9, revision: null }
-  - { repo_id: wikimedia/wikipedia,             config: 20231101.en,    data_dir: null, text_field: text, category: curated, tokens: 5e9,   revision: null }
-  - { repo_id: HuggingFaceTB/smollm-corpus,     config: cosmopedia-v2,  data_dir: null, text_field: text, category: curated, tokens: 1.6e9, revision: null }
-  - { repo_id: common-pile/peS2o,               config: null,           data_dir: null, text_field: text, category: curated, tokens: 0.9e9, revision: null }
+  - {
+      repo_id: HuggingFaceTB/finemath,
+      config: finemath-4plus,
+      data_dir: null,
+      text_field: text,
+      category: math,
+      tokens: 8.3e9,
+      revision: null,
+    }
+  - {
+      repo_id: wikimedia/wikipedia,
+      config: 20231101.en,
+      data_dir: null,
+      text_field: text,
+      category: curated,
+      tokens: 5e9,
+      revision: null,
+    }
+  - {
+      repo_id: HuggingFaceTB/smollm-corpus,
+      config: cosmopedia-v2,
+      data_dir: null,
+      text_field: text,
+      category: curated,
+      tokens: 1.6e9,
+      revision: null,
+    }
+  - {
+      repo_id: common-pile/peS2o,
+      config: null,
+      data_dir: null,
+      text_field: text,
+      category: curated,
+      tokens: 0.9e9,
+      revision: null,
+    }
   # code
-  - { repo_id: HuggingFaceTB/stack-edu,         config: Python,         data_dir: null, text_field: text, category: code,    tokens: 5.2e9, revision: null }
-  - { repo_id: HuggingFaceTB/stack-edu,         config: JavaScript,     data_dir: null, text_field: text, category: code,    tokens: 3.1e9, revision: null }
-  - { repo_id: HuggingFaceTB/stack-edu,         config: TypeScript,     data_dir: null, text_field: text, category: code,    tokens: 1.6e9, revision: null }
-  - { repo_id: HuggingFaceTB/stack-edu,         config: Cpp,            data_dir: null, text_field: text, category: code,    tokens: 2.1e9, revision: null }
-  - { repo_id: HuggingFaceTB/stack-edu,         config: Go,             data_dir: null, text_field: text, category: code,    tokens: 1.6e9, revision: null }
-  - { repo_id: HuggingFaceTB/stack-edu,         config: Rust,           data_dir: null, text_field: text, category: code,    tokens: 1.0e9, revision: null }
-  - { repo_id: HuggingFaceTB/stack-edu,         config: SQL,            data_dir: null, text_field: text, category: code,    tokens: 1.0e9, revision: null }
-  - { repo_id: HuggingFaceTB/stack-edu,         config: Markdown,       data_dir: null, text_field: text, category: code,    tokens: 1.0e9, revision: null }
+  - {
+      repo_id: HuggingFaceTB/stack-edu,
+      config: Python,
+      data_dir: null,
+      text_field: text,
+      category: code,
+      tokens: 5.2e9,
+      revision: null,
+    }
+  - {
+      repo_id: HuggingFaceTB/stack-edu,
+      config: JavaScript,
+      data_dir: null,
+      text_field: text,
+      category: code,
+      tokens: 3.1e9,
+      revision: null,
+    }
+  - {
+      repo_id: HuggingFaceTB/stack-edu,
+      config: TypeScript,
+      data_dir: null,
+      text_field: text,
+      category: code,
+      tokens: 1.6e9,
+      revision: null,
+    }
+  - {
+      repo_id: HuggingFaceTB/stack-edu,
+      config: Cpp,
+      data_dir: null,
+      text_field: text,
+      category: code,
+      tokens: 2.1e9,
+      revision: null,
+    }
+  - {
+      repo_id: HuggingFaceTB/stack-edu,
+      config: Go,
+      data_dir: null,
+      text_field: text,
+      category: code,
+      tokens: 1.6e9,
+      revision: null,
+    }
+  - {
+      repo_id: HuggingFaceTB/stack-edu,
+      config: Rust,
+      data_dir: null,
+      text_field: text,
+      category: code,
+      tokens: 1.0e9,
+      revision: null,
+    }
+  - {
+      repo_id: HuggingFaceTB/stack-edu,
+      config: SQL,
+      data_dir: null,
+      text_field: text,
+      category: code,
+      tokens: 1.0e9,
+      revision: null,
+    }
+  - {
+      repo_id: HuggingFaceTB/stack-edu,
+      config: Markdown,
+      data_dir: null,
+      text_field: text,
+      category: code,
+      tokens: 1.0e9,
+      revision: null,
+    }
