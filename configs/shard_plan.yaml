@@ -26,7 +26,7 @@ shards:
       data_dir: null,
       text_field: text,
       category: web,
-      tokens: 4e9,
+      tokens: 31e9,
       revision: null,
     }
   # math + curated
