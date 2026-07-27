@@ -1,0 +1,16 @@
+# Gate 2 — overfit-tiny. Tiny model, ONE fixed batch looped many steps.
+# Loss must drive toward ~0. Proves loader -> x/y shift -> model -> backward
+# end-to-end. If it can't memorize one batch, something is broken.
+n_layers: 2
+d_model: 128
+d_ff: 512
+n_heads: 4
+n_kv_heads: 2
+head_dim: 32
+seq_len: 256
+n_steps: 500
+batch_size: 4
+lr: 3.0e-4
+mix_name: smoke
+dtype: float32
+device: mps

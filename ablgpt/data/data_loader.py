@@ -6,6 +6,8 @@ import numpy as np
 from ablgpt.data.shard_io import IndexedDataset
 from ablgpt.utils import REPO_ROOT
 
+from torch.utils.data import Dataset
+
 SHARDS_DIR = REPO_ROOT / "data" / "shards"
 
 
@@ -66,7 +68,7 @@ class GPTDataset:
         return tokens[:-1], tokens[1:]
 
 
-class BlendedDataset:
+class BlendedDataset(Dataset):
     def __init__(
         self,
         datasets: list[GPTDataset],
@@ -75,6 +77,7 @@ class BlendedDataset:
         rank: int = 0,
         world_size: int = 1,
     ):
+        super().__init__()
         self.datasets = datasets
         self.weights = weights
         self.size = size
