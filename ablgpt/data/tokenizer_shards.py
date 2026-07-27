@@ -23,6 +23,14 @@ def get_argparse():
         required=False,
         help="Category name to process",
     )
+    parser.add_argument(
+        "-r",
+        "--repo_id",
+        type=str,
+        default=None,
+        required=False,
+        help="Repo id to process",
+    )
 
     return parser.parse_args()
 
@@ -47,8 +55,10 @@ def main():
         shard_cfg = load_shard_plan()
     elif args.category:
         shard_cfg = load_shard_plan(category=args.category)
+    elif args.repo_id:
+        shard_cfg = load_shard_plan(repo_id=args.repo_id)
     else:
-        print("Provide --all or --category. Use --help for usage.")
+        print("Provide --all, --category or --repo_id. Use --help for usage.")
         return
 
     tok = load_tokenizer()

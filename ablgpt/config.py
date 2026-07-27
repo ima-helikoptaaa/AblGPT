@@ -74,7 +74,7 @@ class ShardSource:
         return (self.repo_id, self.config, self.data_dir, self.text_field)
 
 
-def load_shard_plan(path=None, category=None):
+def load_shard_plan(path=None, category=None, repo_id=None):
     """Load the disk-inventory shard plan from configs/shard_plan.yaml."""
     path = path or (CONFIGS_DIR / "shard_plan.yaml")
     with open(path) as f:
@@ -91,6 +91,7 @@ def load_shard_plan(path=None, category=None):
         )
         for s in plan["shards"]
         if category is None or s["category"] == category
+        if repo_id is None or s["repo_id"] == repo_id
     ]
 
 
