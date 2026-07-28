@@ -1,0 +1,19 @@
+# First real run (CUDA) — full-size 12L/768 model on the smoke mix (FineWeb-Edu
+# only), on the Blackwell box. device=cuda, dtype=bfloat16 (native on sm_120, no
+# GradScaler needed). Watch train AND val loss fall from ~10.8.
+n_layers: 12
+d_model: 768
+d_ff: 2048
+n_heads: 12
+n_kv_heads: 4
+head_dim: 64
+seq_len: 1024
+n_steps: 3000
+batch_size: 8
+lr: 3.0e-4
+n_val_batches: 20
+mix_name: smoke
+checkpoint_every: 1000
+checkpoint_dir: checkpoints
+dtype: bfloat16
+device: cuda

@@ -1,0 +1,15 @@
+# Gate 1 — step-0 loss check. Build a real-ish model, run ONE forward+loss
+# on a single batch BEFORE any optimizer step. Expect loss ~= ln(vocab_size)
+# = ln(49152) ~= 10.80. Far off => init / weight-tying / loss-reshape bug.
+# No training happens; n_steps is irrelevant here.
+n_layers: 12
+d_model: 768
+d_ff: 2048
+n_heads: 12
+n_kv_heads: 4
+head_dim: 64
+seq_len: 1024
+batch_size: 8
+mix_name: smoke
+dtype: bfloat16
+device: cuda

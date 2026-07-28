@@ -1,0 +1,17 @@
+# Gate 2 (CUDA) — overfit-tiny on the Blackwell box. Same as gate_overfit but
+# device=cuda. Kept at float32: the gate's signal is loss -> ~0, and bf16's
+# short mantissa floors the achievable loss higher. The model is tiny, so
+# float32 costs nothing here.
+n_layers: 2
+d_model: 128
+d_ff: 512
+n_heads: 4
+n_kv_heads: 2
+head_dim: 32
+seq_len: 256
+n_steps: 500
+batch_size: 4
+lr: 3.0e-4
+mix_name: smoke
+dtype: float32
+device: cuda
