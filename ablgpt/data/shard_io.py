@@ -11,45 +11,68 @@ VERSION = 1
 DTYPE_CODE = 8
 DTYPE = np.dtype(np.uint16)
 
+# Byte layout of the fixed header (magic + version + dtype + 2 counts).
+HEADER_LEN = len(MAGIC) + 8 + 1 + 8 + 8
+
+
+def write_index(idx_path, sequence_lengths):
+    """Write a .idx for a .bin holding `sequence_lengths` back-to-back uint16 docs.
+
+    Pointers are the cumulative byte offset of each doc (2 bytes/token), derived
+    purely from the lengths -- so a merged shard can rebuild a correct index from
+    its parts' lengths alone, without carrying any per-part byte offsets across.
+    """
+    lengths = np.asarray(sequence_lengths, dtype=np.int32)
+    num_docs = len(lengths)
+    pointers = np.zeros(num_docs, dtype=np.int64)
+    pointers[1:] = np.cumsum(lengths[:-1].astype(np.int64) * 2)
+    with open(idx_path, "wb") as f:
+        f.write(MAGIC)  # magic
+        f.write(struct.pack("<Q", VERSION))  # version
+        f.write(struct.pack("<B", DTYPE_CODE))  # dtype_code
+        f.write(struct.pack("<Q", num_docs))  # sequence_count
+        f.write(struct.pack("<Q", num_docs))  # doc_count
+        f.write(lengths.tobytes())  # sequence_lengths
+        f.write(pointers.tobytes())  # sequence_pointers
+        f.write(np.arange(num_docs + 1, dtype=np.int64).tobytes())  # document_indices
+
+
+def read_index_lengths(idx_path):
+    """Read just the per-doc token-length array from a .idx (for merging parts)."""
+    with open(idx_path, "rb") as f:
+        header = f.read(HEADER_LEN)
+    if header[: len(MAGIC)] != MAGIC:
+        raise RuntimeError(f"{idx_path} file integrity compromised")
+    (sequence_count,) = struct.unpack_from("<Q", header, len(MAGIC) + 8 + 1)
+    return np.memmap(
+        idx_path, dtype=np.int32, mode="r", offset=HEADER_LEN, shape=(sequence_count,)
+    )
+
 
 class IndexedDatasetBuilder:
-    def __init__(self, slug):
+    def __init__(self, slug, name=None):
         self.slug = slug
 
         shard_dir = SHARDS_DIR / self.slug
         shard_dir.mkdir(parents=True, exist_ok=True)
 
-        self.idx_path = shard_dir / f"{slug}.idx"
+        # `name` lets a parallel worker write a part (e.g. "<slug>.part3") into the
+        # same shard dir; defaults to the slug for the single-process path.
+        stem = name or slug
+        self.idx_path = shard_dir / f"{stem}.idx"
 
-        shards_path = shard_dir / f"{slug}.bin"
+        shards_path = shard_dir / f"{stem}.bin"
         self.shard_file = open(shards_path, "wb")
 
         self.sequence_lengths = []
-        self.sequence_pointers = [0]
 
     def add_document(self, ids):
         self.shard_file.write(np.array(ids, dtype=np.uint16).tobytes())
         self.sequence_lengths.append(len(ids))
-        self.sequence_pointers.append(self.sequence_pointers[-1] + (len(ids) * 2))
 
     def finalize(self):
         self.shard_file.close()
-        num_docs = len(self.sequence_lengths)
-        with open(self.idx_path, "wb") as f:
-            f.write(MAGIC)  # magic
-            f.write(struct.pack("<Q", VERSION))  # version
-            f.write(struct.pack("<B", DTYPE_CODE))  # dtype_code
-            f.write(struct.pack("<Q", num_docs))  # sequence_count
-            f.write(struct.pack("<Q", num_docs))  # doc_count
-            f.write(
-                np.array(self.sequence_lengths, dtype=np.int32).tobytes()
-            )  # sequence_lengths
-            f.write(
-                np.array(self.sequence_pointers[:-1], dtype=np.int64).tobytes()
-            )  # sequence_pointers
-            f.write(
-                np.arange(num_docs + 1, dtype=np.int64).tobytes()
-            )  # document_indices
+        write_index(self.idx_path, self.sequence_lengths)
 
 
 class IndexedDataset:
