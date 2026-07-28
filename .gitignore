@@ -21,3 +21,10 @@ checklist.md
 
 # Checkpoints
 /checkpoints/
+
+# macOS AppleDouble metadata
+._*
+.DS_Store
+
+# Contains HF token — box-only
+/run_shard.sh
