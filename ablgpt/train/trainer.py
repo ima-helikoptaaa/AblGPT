@@ -63,7 +63,8 @@ def train(cfg):
     model = build_model(cfg)
     optimizer = torch.optim.AdamW(model.parameters(), lr=cfg.lr)
     scheduler = LambdaLR(
-        optimizer, lr_lambda=lambda s: wsd_lambda(s, warmup=100, total=cfg.n_steps)
+        optimizer,
+        lr_lambda=lambda s: wsd_lambda(s, warmup=cfg.warmup_steps, total=cfg.n_steps),
     )
 
     ds_train = build_dataset(cfg.mix_name, cfg.seq_len, "train")
@@ -71,20 +72,40 @@ def train(cfg):
     dl_train = torch.utils.data.DataLoader(ds_train, batch_size=cfg.batch_size)
     dl_val = torch.utils.data.DataLoader(ds_val, batch_size=cfg.batch_size)
 
-    for step, (x, y) in enumerate(dl_train):
+    # One `step` = one OPTIMIZER step = grad_accum_steps micro-batches. Loss is
+    # divided by grad_accum_steps so the accumulated gradient equals the gradient
+    # of the mean loss over the full effective batch (not its sum). `step` only
+    # advances on an optimizer step, so n_steps, the WSD schedule, and
+    # checkpoint_every all stay denominated in optimizer steps regardless of
+    # accumulation -- accum is a memory strategy, not a schedule change.
+    accum = max(1, cfg.grad_accum_steps)
+    step = 0
+    micro_in_step = 0
+    optimizer.zero_grad()
+    running = 0.0
+
+    for x, y in dl_train:
         if step >= cfg.n_steps:
             break
         x, y = x.to(cfg.device), y.to(cfg.device)
 
         loss = _loss(model, x, y, cfg.vocab_size)
-        optimizer.zero_grad()
-        loss.backward()
+        (loss / accum).backward()
+        running += loss.item() / accum
+        micro_in_step += 1
+        if micro_in_step < accum:
+            continue
+
         nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
         optimizer.step()
         scheduler.step()
+        optimizer.zero_grad()
+        micro_in_step = 0
+        loss_val, running = running, 0.0
+        step += 1
 
         if step % 100 == 0:
-            print(f"step {step}  loss {loss.item():.4f}")
+            print(f"step {step}  loss {loss_val:.4f}")
 
         if step % 500 == 0:
             model.eval()

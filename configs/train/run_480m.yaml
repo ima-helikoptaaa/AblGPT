@@ -1,0 +1,52 @@
+# Chinchilla-optimal 480M run on the ladder 60/40 mix (CUDA, Blackwell).
+#
+# WHY 480M: this config exists to make a 10B-token budget compute-optimal rather
+# than arbitrary. Chinchilla's ~20 tokens/param puts the optimal model for 10B at
+# ~500M; the shape below is exactly 479,786,240 params -> 20.8 tokens/param.
+# (113M @ 10B would be 88 tok/param -- heavily over-trained, which is a valid
+# inference-efficiency choice but NOT what a scaling-law ladder wants at a rung.)
+#
+# SHAPE: d_model 1280, 24 layers, 20 query / 5 KV heads (GQA groups = 4, same
+# ratio as run_124m), head_dim 64 so n_heads * head_dim == d_model exactly.
+# d_ff 3456 = 2.7 x d_model, the standard SwiGLU ratio (8/3, rounded to a
+# multiple of 128 for tensor-core alignment). Embedding is 13% of params -- with
+# weight tying the 49k vocab no longer dominates the budget as it does at 113M.
+#
+# BATCH: batch_size is the MICRO-batch; the effective batch is
+#   8 x 64 x 1024 = 524,288 tokens
+# which is the GPT-3-350M-scale batch appropriate here, and is what lr 3e-4 is
+# tuned for. 10e9 / 524288 = 19,073 optimizer steps. Gradient accumulation is
+# what makes this reachable: without it, 10B tokens at micro-batch 8 would be
+# 1.22M optimizer steps at a 8k-token batch. Raise batch_size and drop
+# grad_accum_steps by the same factor if VRAM allows -- the product is what
+# matters, and n_steps must not change.
+#
+# COST: 6ND = 2.88e19 FLOPs, i.e. ~3.3 GPU-days at 100 TFLOP/s effective and
+# ~6.7 at 50. The attention path here is hand-rolled (explicit B x nh x T x T
+# probs, no fused/flash kernel), so expect the low end of that range. The
+# trainer is SINGLE-GPU -- no DDP/FSDP -- so a 4-GPU box does not divide this.
+# Budget for a multi-day run, or shard the ladder into smaller rungs first.
+#
+# PREEMPTION: checkpoints restore weights/optimizer/scheduler but NOT the data
+# stream position, so a spot preemption restarts the stream from zero. That was
+# acceptable for a 76k-step shakeout; over 19k steps of a real 10B-token run it
+# means repeated data. Fix data-stream resume before treating this as the
+# reference run for a scaling-law rung.
+n_layers: 24
+d_model: 1280
+d_ff: 3456
+n_heads: 20
+n_kv_heads: 5
+head_dim: 64
+seq_len: 1024
+n_steps: 19073
+batch_size: 8
+grad_accum_steps: 64
+lr: 3.0e-4
+warmup_steps: 500
+n_val_batches: 20
+mix_name: ladder
+checkpoint_every: 500
+checkpoint_dir: checkpoints
+dtype: bfloat16
+device: cuda

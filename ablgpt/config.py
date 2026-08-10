@@ -115,9 +115,15 @@ class TrainConfig:
     n_kv_heads: int = 4
     head_dim: int = 64
     # optim / run
+    # `batch_size` is the MICRO-batch (what one forward/backward holds in memory).
+    # The effective batch is batch_size * grad_accum_steps * seq_len tokens, and
+    # that product -- not batch_size -- is the number that matters for LR choice
+    # and for converting a token budget into n_steps.
     n_steps: int = 100
     batch_size: int = 8
+    grad_accum_steps: int = 1
     lr: float = 3e-4
+    warmup_steps: int = 100
     n_val_batches: int = 20
     # data
     mix_name: str = "smoke"
