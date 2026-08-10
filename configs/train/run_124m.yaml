@@ -1,0 +1,26 @@
+# Shakeout / baseline run — 113M model on the ladder 60/40 mix (CUDA, Blackwell).
+# Purpose: integration-test the FULL pipeline end-to-end on real data (both
+# sources + byte-weighting + val split, which the smoke-only gates never
+# exercised) and produce a known-good baseline loss curve for later comparison.
+# NOT a hyperparameter sweep: batch_size=32 is the 96GB OOM ceiling (fp32
+# logits in cross_entropy is the wall), lr=3e-4 suits the ~32k-token effective
+# batch (trainer has no grad-accum). ~76k steps x 32 x 1024 ~= 2.5B tokens
+# (Chinchilla-ish for 113M). WSD schedule, warmup hardcoded to 100 steps.
+# Spot box + no data-stream resume: a preemption resumes weights but restarts
+# the data stream from zero -- acceptable for a shakeout.
+n_layers: 12
+d_model: 768
+d_ff: 2048
+n_heads: 12
+n_kv_heads: 4
+head_dim: 64
+seq_len: 1024
+n_steps: 76000
+batch_size: 32
+lr: 3.0e-4
+n_val_batches: 20
+mix_name: ladder
+checkpoint_every: 2000
+checkpoint_dir: checkpoints
+dtype: bfloat16
+device: cuda

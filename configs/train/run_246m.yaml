@@ -1,0 +1,80 @@
+# Chinchilla-optimal 246M run on the ladder 60/40 mix (CUDA, RTX PRO 6000 Blackwell).
+#
+# WHY 246M INSTEAD OF 480M: run_480m.yaml is the right compute-optimal shape for a
+# 10B-token budget, but 10B tokens is 6-10 days of wall clock on a single Blackwell
+# 6000 with this codebase (measured against 126 TFLOP/s dense bf16 peak; see the
+# COST block below for why MFU is low here). This rung halves the parameters and
+# scales the tokens with them, so it stays on the SAME Chinchilla line -- 20.0
+# tokens/param, not an under-trained shortcut -- while fitting in 2.5-4.5 days.
+# 480m remains the next rung up; this is not a replacement for it.
+#
+# SHAPE: d_model 1024, 18 layers, 16 query / 4 KV heads (GQA groups = 4, the same
+# ratio as run_124m and run_480m, so the ladder varies width/depth and not the
+# attention structure). head_dim 64 so n_heads * head_dim == d_model exactly.
+# d_ff 2688 = 2.625 x d_model, the SwiGLU 8/3 ratio rounded to a multiple of 128
+# for tensor-core alignment.
+# Param count is 246,191,104 -- VERIFIED by instantiating TransformerLM and
+# summing requires_grad parameters, not hand-computed from the shape formula.
+# Embedding is 20% of params (49k vocab x 1024, tied with lm_head). That is higher
+# than 480m's 13%: the smaller the model, the more the fixed vocab dominates, which
+# is itself a real effect to note when reading the ladder's loss curves.
+#
+# TOKEN BUDGET: 246,191,104 x 20 = 4.924B tokens.
+#   18,783 steps x 262,144 tokens/step = 4.9239B = 20.00 tokens/param
+# Both FineWeb-Edu and DCLM have headroom at the ladder 60/40 split (needs 2.95B
+# and 1.97B; 44B and 4.0B are on disk). Note DCLM's margin is thin -- 1.97B of 4.0B.
+#
+# BATCH: batch_size is the MICRO-batch; the effective batch is
+#   16 x 16 x 1024 = 262,144 tokens
+# Half of 480m's 524,288, which is the appropriate scaling: batch size should grow
+# with model scale, and 262k is the GPT-3-medium-scale batch for a model this size.
+# lr 3e-4 is retained -- it is tuned for this batch range and the WSD schedule.
+# Raise batch_size and drop grad_accum_steps by the SAME factor if you want fewer
+# Python-loop iterations (bs 32 x accum 8 is identical math, ~39 GiB, and is
+# probably FASTER since 16 micro-steps per optimizer step is launch-overhead
+# heavy). The product is what matters; n_steps must not change.
+#
+# MEMORY (96 GiB card, explicit-attention path):
+#   bs 16 -> ~21 GiB    bs 24 -> ~30 GiB    bs 32 -> ~39 GiB
+# all comfortable. Memory is NOT the binding constraint on this card; throughput
+# is. On a 24 GiB card bs 16 would already be tight and 480m would not fit at all.
+#
+# COST: 8.39e18 FLOPs total (6ND core + 15% for the T^2 attention terms that 6ND
+# omits -- at seq_len 1024 those are not negligible). On 126 TFLOP/s dense bf16:
+#   MFU 12% -> 6.4 days     MFU 18% -> 4.3 days
+#   MFU 30% -> 2.6 days     MFU 40% -> 1.9 days
+# Expect the 12-18% band AS WRITTEN, because attention.py materializes the full
+# B x nh x T x T score tensor and softmaxes it explicitly -- there is no fused or
+# flash kernel on this path, and no torch.compile. Switching that one module to
+# F.scaled_dot_product_attention (enable_gqa=True, which also removes the
+# repeat_interleave) is the single highest-leverage change available and should
+# move this into the 30-40% band, i.e. ~2 days. The trainer is SINGLE-GPU (no
+# DDP/FSDP), so a multi-GPU box does not divide any of these numbers.
+#
+# TWO KNOWN ISSUES, both worth fixing before treating this as a reference rung:
+#   1. NO fp32 MASTER WEIGHTS. The model is instantiated directly in bfloat16 with
+#      no autocast, so AdamW updates bf16 parameters in place. bf16 carries ~3
+#      decimal digits, so over 18,783 steps small updates can round away entirely.
+#      This is a correctness risk on a multi-day run, not just a speed question.
+#   2. NO DATA-STREAM RESUME. Checkpoints restore weights, optimizer, and
+#      scheduler, but not the data iterator position, so any interruption restarts
+#      the stream from token zero and re-trains on data already seen. Over 18,783
+#      steps that silently corrupts the token budget this config exists to control.
+n_layers: 18
+d_model: 1024
+d_ff: 2688
+n_heads: 16
+n_kv_heads: 4
+head_dim: 64
+seq_len: 1024
+n_steps: 18783
+batch_size: 16
+grad_accum_steps: 16
+lr: 3.0e-4
+warmup_steps: 500
+n_val_batches: 20
+mix_name: ladder
+checkpoint_every: 500
+checkpoint_dir: checkpoints
+dtype: bfloat16
+device: cuda
