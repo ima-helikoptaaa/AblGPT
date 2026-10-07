@@ -108,6 +108,7 @@ class TrainConfig:
     # model
     vocab_size: int = VOCAB_SIZE
     seq_len: int = 1024
+    max_seq: int = 4096
     n_layers: int = 12
     d_model: int = 768
     d_ff: int = 2048

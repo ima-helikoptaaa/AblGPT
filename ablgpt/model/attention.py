@@ -3,73 +3,76 @@ import math
 import torch
 from torch import nn
 
-from ablgpt.model.mlp import Linear
-from ablgpt.model.pos_embed import RotaryPositionalEmbeddings
 
+class GQA(nn.Module):
+    mask: torch.Tensor
 
-class GroupedQueryAttention(nn.Module):
     def __init__(
-        self,
-        d_model: int,
-        n_heads: int,
-        head_dim: int,
-        n_kv_heads: int,
-        max_seq_len: int,
-        dtype: torch.dtype,
-        device: torch.device,
+        self, max_seq, d_model, n_head, n_kv_head, head_dim, rope, dtype, device
     ):
         super().__init__()
+        self.q = nn.Parameter(
+            torch.randn(head_dim * n_head, d_model, dtype=dtype, device=device)
+            * (d_model) ** -0.5
+        )
+        self.k = nn.Parameter(
+            torch.randn(head_dim * n_kv_head, d_model, dtype=dtype, device=device)
+            * (d_model) ** -0.5
+        )
+        self.v = nn.Parameter(
+            torch.randn(head_dim * n_kv_head, d_model, dtype=dtype, device=device)
+            * (d_model) ** -0.5
+        )
+        self.o = nn.Parameter(
+            torch.randn(d_model, head_dim * n_head, dtype=dtype, device=device)
+            * (head_dim * n_head) ** -0.5
+        )
 
-        self.d_model = d_model
-        self.n_heads = n_heads
+        self.n_head = n_head
+        self.n_kv_head = n_kv_head
         self.head_dim = head_dim
-        self.n_kv_heads = n_kv_heads
         self.dtype = dtype
-        self.device = device
 
-        self.q = Linear(d_model, n_heads * head_dim, dtype, device)
-        self.k = Linear(d_model, n_kv_heads * head_dim, dtype, device)
-        self.v = Linear(d_model, n_kv_heads * head_dim, dtype, device)
-        self.out_proj = Linear(n_heads * head_dim, d_model, dtype, device)
+        self.rope = rope
 
-        self.rope = RotaryPositionalEmbeddings(
-            10000, max_seq_len, self.head_dim, self.dtype, self.device
-        )
+        mask = torch.triu(torch.ones(max_seq, max_seq, dtype=torch.bool), diagonal=1)
+        self.register_buffer("mask", mask)
 
-        mask = torch.triu(torch.ones(max_seq_len, max_seq_len), diagonal=1).bool()
-
-        self.causal_mask: torch.Tensor
-        self.register_buffer("causal_mask", mask)
-
+    # shape x -> (batch_size, seq_len, d_model)
+    # shape q_proj -> (batch_size, seq_len, head_dim * n_head)
+    # shape q_proj -> (batch_size, seq_len, n_head, head_dim)
+    # shape q_proj -> (batch_size, n_head, seq_len, head_dim)
+    # shape attention -> (batch_size, n_head, seq_len, seq_len)
+    # shape attention -> (batch_size, n_head, seq_len, head_dim)
     def forward(self, x: torch.Tensor):
-        B, seq_len, _ = x.shape
-        q = self.q(x).view(B, seq_len, self.n_heads, self.head_dim)
-        q = self.rope(q).transpose(1, 2)  # (B, n_heads, T, head_dim)
+        q_proj = x @ self.q.T
+        q_proj = q_proj.view(*x.shape[:-1], self.n_head, self.head_dim)
+        q_proj = q_proj.transpose(1, 2)
+        q_proj = self.rope(q_proj)
 
-        k = self.k(x).view(B, seq_len, self.n_kv_heads, self.head_dim)
-        k = self.rope(k).transpose(1, 2)  # (B, n_kv_heads, T, head_dim)
+        n_reps = self.n_head // self.n_kv_head
 
-        groups = self.n_heads // self.n_kv_heads
+        k_proj = x @ self.k.T
+        k_proj = k_proj.view(*x.shape[:-1], self.n_kv_head, self.head_dim)
+        k_proj = k_proj.transpose(1, 2)
+        k_proj = self.rope(k_proj)
+        k_proj = k_proj.repeat_interleave(n_reps, 1)
 
-        k = k.repeat_interleave(groups, dim=1)  # (B, n_heads, T, head_dim)
+        v_proj = x @ self.v.T
+        v_proj = v_proj.view(*x.shape[:-1], self.n_kv_head, self.head_dim)
+        v_proj = v_proj.transpose(1, 2)
+        v_proj = v_proj.repeat_interleave(n_reps, 1)
 
-        attention = q @ k.transpose(
-            -2, -1
-        )  # (B, n_heads, T, head_dim) @ (B, n_heads, head_dim, T) = (B, n_heads, T, T)
+        scores = q_proj @ k_proj.transpose(-2, -1)
+        scores = scores / math.sqrt(self.head_dim)
 
-        attention = attention.masked_fill(
-            self.causal_mask[:seq_len, :seq_len], float("-inf")
+        S = x.size(1)
+        scores = scores.masked_fill(self.mask[:S, :S], torch.finfo(scores.dtype).min)
+        attention = torch.softmax(scores, dim=-1, dtype=torch.float32).to(v_proj.dtype)
+        attention = attention @ v_proj
+        attention = attention.transpose(1, 2)
+        attention = attention.reshape(
+            *attention.shape[:-2], self.n_head * self.head_dim
         )
 
-        attention_probs = torch.softmax((attention) / math.sqrt(self.head_dim), dim=-1)
-
-        v = self.v(x).view(B, seq_len, self.n_kv_heads, self.head_dim)
-        v = v.transpose(1, 2)
-        v = v.repeat_interleave(groups, dim=1)  # (B, n_heads, seq_len, head_dim)
-
-        values = (
-            attention_probs @ v
-        )  # (B, n_heads, T, T) @ (B, n_heads, T, head_dim) = (B, n_heads, T, head_dim)
-        values = values.transpose(1, 2).contiguous().view(B, seq_len, -1)
-
-        return self.out_proj(values)
+        return attention @ self.o.T

@@ -16,15 +16,18 @@ data-mix ablations are reproducible and comparable, rather than a pile of one-of
 
 ## Status
 
-Implemented and working: model, tokenizer, data pipeline, trainer, correctness gates.
-Both correctness gates pass, and a full-size 12L/768 smoke run trains on real
-FineWeb-Edu data with train and validation loss falling from the `ln(vocab_size)`
-baseline.
+Implemented: model, tokenizer, sharded data pipeline, trainer, gradient accumulation,
+atomic checkpoints, and resume of model/optimizer/scheduler/RNG/data positions.
+CUDA training, validation, and correctness gates use bf16 autocast with fp32 parameters.
 
-**Not yet run:** the scaling-law ladder, the architecture ablations, and the flagship
-pretraining run. Those need datacenter GPUs. Their configs are committed
-(`configs/data_mixes.yaml`, `configs/train/*_cuda.yaml`), but no results exist yet — the
-only checkpoints on disk are from the smoke run.
+The rewritten model passes the fp32 correctness gates: step-0 loss **10.9405**
+(expected near **10.8027**) and fixed-batch overfit loss **0.0224** after 1,000 updates.
+Resume matched uninterrupted weights in a tiny CPU test. CUDA bf16 execution and a
+real-data smoke/resume run of this rewrite remain to be verified.
+
+**Not yet run:** the scaling-law ladder, architecture ablations, and flagship
+pretraining run. Generation, KV-cache decoding, and throughput/quality benchmarks
+remain to be implemented. Run configs are in `configs/train/`.
 
 ### Choosing a rung
 
@@ -47,10 +50,11 @@ and no `torch.compile`, which puts effective MFU in the 12–18% band rather tha
 `enable_gqa=True`, which also makes the `repeat_interleave` unnecessary) is the
 single highest-leverage change in the repo and roughly halves every number above.
 
-Two issues to fix before treating any of these as a reference run: the model is
-built directly in bf16 with no autocast or fp32 master weights (AdamW updates bf16
-params in place, and small updates round away over ~19k steps), and checkpoints do
-not restore the data-stream position (so an interruption re-trains on seen tokens).
+The trainer keeps parameters in fp32 and uses bf16 autocast for CUDA configs that
+request it. Checkpoints include optimizer/scheduler state, completed steps, RNG,
+and consumed train/validation batch counts. Resume assumes unchanged data files and
+training settings; it restores iterator positions by skipping batches. Older model
+checkpoints use different parameter names and are not directly compatible.
 
 ## Model
 
@@ -60,13 +64,13 @@ not restore the data-stream position (so an interruption re-trains on seen token
 |---|---|---|
 | Grouped-query attention | `attention.py` | 12 query heads, 4 KV heads, `head_dim` 64 |
 | Rotary position embeddings | `pos_embed.py` | applied per-head to Q and K |
-| RMSNorm | `norms.py` | pre-norm placement |
+| RMSNorm | `norm.py` | pre-norm placement |
 | SwiGLU feed-forward | `mlp.py` | `d_ff` 2048 |
-| Blocks + LM head | `blocks.py`, `transformer.py` | embedding/output weight tying |
+| Blocks + LM head | `transformer.py` | embedding/output weight tying |
 
 Default configuration is 12 layers, `d_model` 768, `seq_len` 1024.
 
-Training uses a warmup-stable-decay LR schedule (`wsd_lambda` in `train/trainer.py`):
+Training uses a warmup-stable-decay LR schedule (`warmup_decay` in `train/trainer.py`):
 linear warmup, a stable plateau, then linear decay over the final 10% of steps — with
 gradient-norm clipping at 1.0 and atomic checkpointing.
 
@@ -76,7 +80,7 @@ Bugs in a pretraining stack are expensive precisely because training still *look
 it works — the loss goes down and the model is quietly broken. Two gates must pass
 before any real compute is spent:
 
-1. **Step-0 loss** — at initialization, cross-entropy must equal `ln(vocab_size)` ≈ 10.80
+1. **Step-0 loss** — at initialization, cross-entropy should be near `ln(vocab_size)` ≈ 10.80
    for the 49,152-token vocabulary. This one number catches bad initialization scale,
    broken weight tying, and logit/label reshape bugs.
 2. **Overfit-tiny** — drive the loss to near zero on a handful of batches. Proves the
@@ -129,11 +133,14 @@ configs/
 uv sync
 
 # correctness gates (config name only, no .yaml)
-uv run python -m ablgpt.train.trainer gate_step0    --gate step0
-uv run python -m ablgpt.train.trainer gate_overfit  --gate overfit
+uv run python -m ablgpt.train.trainer --config gate_step0    --gate step0
+uv run python -m ablgpt.train.trainer --config gate_overfit  --gate overfit
 
 # real-data smoke run
-uv run python -m ablgpt.train.trainer smoke
+uv run python -m ablgpt.train.trainer --config smoke
+
+# resume from checkpoints/model_checkpoint_1000.pth (same config/data)
+uv run python -m ablgpt.train.trainer --config smoke --resume 1000
 ```
 
 `configs/train/*_cuda.yaml` are the same runs targeted at CUDA rather than Apple MPS.

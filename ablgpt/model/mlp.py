@@ -3,41 +3,33 @@ from torch import nn
 
 
 class Linear(nn.Module):
-    def __init__(
-        self,
-        in_features: int,
-        out_features: int,
-        dtype: torch.dtype,
-        device: torch.device,
-    ):
+    def __init__(self, out_feat, in_feat, dtype, device):
         super().__init__()
-        # scale by 1/sqrt(fan_in) so activation variance is preserved across layers.
         self.weight = nn.Parameter(
-            torch.randn((out_features, in_features), dtype=dtype, device=device)
-            / (in_features**0.5)
+            torch.randn(out_feat, in_feat, dtype=dtype, device=device) * in_feat**-0.5
         )
 
-    def forward(self, x: torch.Tensor):
+    def forward(self, x):
         return x @ self.weight.T
 
 
-def silu(x: torch.Tensor):
+def silu(x):
     return x * torch.sigmoid(x)
 
 
-class Swiglu(nn.Module):
-    def __init__(
-        self, d_model: int, d_ff: int, dtype: torch.dtype, device: torch.device
-    ):
+class SwiGLU(nn.Module):
+    def __init__(self, d_ff, d_model, dtype, device):
         super().__init__()
-        self.up_proj = Linear(d_model, d_ff, dtype, device)
-        self.gate_proj = Linear(d_model, d_ff, dtype, device)
-        self.down_proj = Linear(d_ff, d_model, dtype, device)
 
-    def forward(self, x: torch.Tensor):
-        values = self.up_proj(x)
-        gate = self.gate_proj(x)
+        self.up_proj = Linear(d_ff, d_model, dtype=dtype, device=device)
+        self.gate_proj = Linear(d_ff, d_model, dtype=dtype, device=device)
+        self.down_proj = Linear(d_model, d_ff, dtype=dtype, device=device)
 
-        gated_values = silu(gate) * values
-
-        return self.down_proj(gated_values)
+    # shape of x -> (batch_size, seq_len, d_model)
+    # shape of x_up -> (batch_size, seq_len, d_ff)
+    # shape of x_gate -> (batch_size, seq_len, d_ff)
+    # shape of output -> (batch_size, seq_len, d_model)
+    def forward(self, x):
+        x_up = self.up_proj(x)
+        x_gate = silu(self.gate_proj(x))
+        return self.down_proj(x_up * x_gate)

@@ -5,6 +5,8 @@ import numpy as np
 
 from ablgpt.data.shard_io import IndexedDataset
 from ablgpt.utils import REPO_ROOT
+from ablgpt.config import load_data_mix
+from ablgpt.data.utils import source_slug
 
 from torch.utils.data import Dataset
 
@@ -166,8 +168,6 @@ def build_dataset(
     world_size=1,
     size=None,
 ):
-    from ablgpt.config import load_data_mix
-    from ablgpt.data.utils import source_slug
 
     data_config = load_data_mix(mix_name)
 

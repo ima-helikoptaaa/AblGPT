@@ -1,52 +1,71 @@
-import torch
 from torch import nn
-from ablgpt.model.blocks import TransformerBlock
-from ablgpt.model.norms import RMSNorm
-from ablgpt.model.mlp import Linear
 
-class Embedding(nn.Module):
-    def __init__(
-        self,
-        vocab_size: int,
-        d_model: int,
-        dtype: torch.dtype,
-        device: torch.device,
-    ):
-        super().__init__()
-        # small std: the head is tied to this, so it also sets the logit scale.
-        self.embedding = nn.Parameter(
-            torch.randn((vocab_size, d_model), dtype=dtype, device=device) * 0.02
-        )
+from ablgpt.model.attention import GQA
+from ablgpt.model.embedding import Embedding
+from ablgpt.model.mlp import Linear, SwiGLU
+from ablgpt.model.norm import RMSNorm
+from ablgpt.model.pos_embed import RotaryEmbedding
 
-    def forward(self, token_ids: torch.Tensor):
-        return self.embedding[token_ids]
 
 class TransformerLM(nn.Module):
     def __init__(
-            self,
-            vocab_size,
-            seq_len,
-            n_layers,
-            d_model,
-            d_ff,
-            n_heads,
-            n_kv_heads,
-            head_dim,
-            dtype,
-            device
+        self,
+        vocab_size,
+        max_seq,
+        n_layers,
+        d_model,
+        d_ff,
+        n_head,
+        n_kv_head,
+        head_dim,
+        dtype,
+        device,
     ):
         super().__init__()
+        self.rope = RotaryEmbedding(max_seq, head_dim, device)
         self.embedding = Embedding(vocab_size, d_model, dtype, device)
-        self.transformer_blocks = nn.ModuleList([TransformerBlock(d_model, d_ff, n_heads, n_kv_heads, head_dim, seq_len, dtype, device) for _ in range(n_layers)])
-        self.norm = RMSNorm(d_model, dtype=dtype, device=device)
-        self.lm_head = Linear(d_model, vocab_size, dtype, device)
+        self.layers = nn.ModuleList(
+            [
+                TransformerBlock(
+                    max_seq,
+                    d_model,
+                    d_ff,
+                    n_head,
+                    n_kv_head,
+                    head_dim,
+                    self.rope,
+                    dtype,
+                    device,
+                )
+                for _ in range(n_layers)
+            ]
+        )
+        self.lm_head = Linear(vocab_size, d_model, dtype, device)
+        self.norm = RMSNorm(d_model, dtype, device)
+
         self.lm_head.weight = self.embedding.embedding
-        
 
     def forward(self, x):
         x = self.embedding(x)
-        for block in self.transformer_blocks:
-            x = block(x)
-        x = self.norm(x)
-        return self.lm_head(x)
+        for layer in self.layers:
+            x = layer(x)
+        x = self.lm_head(self.norm(x))
+        return x
 
+
+class TransformerBlock(nn.Module):
+    def __init__(
+        self, max_seq, d_model, d_ff, n_head, n_kv_head, head_dim, rope, dtype, device
+    ):
+        super().__init__()
+        self.attn = GQA(
+            max_seq, d_model, n_head, n_kv_head, head_dim, rope, dtype, device
+        )
+        self.swiglu = SwiGLU(d_ff, d_model, dtype, device)
+        self.attn_norm = RMSNorm(d_model, dtype, device)
+        self.ffn_norm = RMSNorm(d_model, dtype, device)
+
+    def forward(self, x):
+        x = x + self.attn(self.attn_norm(x))
+        x = x + self.swiglu(self.ffn_norm(x))
+        return x
